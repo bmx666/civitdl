@@ -14,6 +14,8 @@ from helpers.sourcemanager import Id
 from helpers.options import BatchOptions
 from helpers.cache import Cache
 
+import urllib.parse
+
 from ._metadata import Metadata
 
 
@@ -49,6 +51,28 @@ class Model:
             os.makedirs(dirpath, exist_ok=True)
             IOHelper.write_to_files(dirpath, filenames, [dumps(
                 image_dict, indent=2, ensure_ascii=False) for image_dict in prompts], encoding='UTF-8')
+
+    def __download_gendata(self, dirpath: str, filenames: List[str], image_urls: List[str]):
+        if len(image_urls) == 0:
+            return
+
+        os.makedirs(dirpath, exist_ok=True)
+        for filename, image_url in zip(filenames, image_urls):
+            if filename:  # filename is None if no image ID was found
+                # Extract image ID from the filename part of the URL
+                image_id_match = re.search(r'/(\d+)\.(?:jpeg|jpg|png|webp)', image_url)
+                if image_id_match:
+                    image_id = image_id_match.group(1)
+                    try:
+                        gendata_params = {"json": {"id": int(image_id), "authed": True}}
+                        gendata_url = f'https://civitai.com/api/trpc/image.getGenerationData?input={urllib.parse.quote(dumps(gendata_params))}'
+                        print_verbose(f'Fetching generation data for image {image_id}')
+                        response = self.__batchOptions.session.get(gendata_url)
+                        if response.status_code == 200:
+                            filepath = os.path.join(dirpath, filename)
+                            IOHelper.write_to_file(filepath, [response.text], encoding='UTF-8')
+                    except Exception as e:
+                        print_verbose(f'Failed to fetch generation data for image {image_id}: {e}')
 
     def __download_metadata(self, dirpath: str, filename: str, model_dict: Dict):
         os.makedirs(dirpath, exist_ok=True)
@@ -230,12 +254,22 @@ class Model:
         # get filename of hash
         hash_filename = f'{model_stem}-mid_{model_id}-vid_{version_id}.csv'  # nopep8
 
+        # get filename of generation data
+        gendata_filenames = []
+        for url in image_download_urls:
+            image_id_match = re.search(r'/(\d+)\.(?:jpeg|jpg|png|webp)', url)
+            if image_id_match:
+                gendata_filenames.append(f'{image_id_match.group(1)}_gendata.json')
+            else:
+                gendata_filenames.append(None)
+
         return {
             'metadata': metadata_filename,
             'images': image_filenames,
             'prompts': prompt_filenames,
             'model': model_filename,
-            'hash': hash_filename
+            'hash': hash_filename,
+            'gendata': gendata_filenames
         }
 
     def download(self, id):
@@ -310,6 +344,14 @@ class Model:
             filename=filenames['hash'],
             hashes=metadata.version_hashes
         )
+
+        # Add generation data download
+        if metadata.image_download_urls:
+            self.__download_gendata(
+                dirpath=sorter_data.prompt_dir_path,
+                filenames=filenames['gendata'],
+                image_urls=metadata.image_download_urls
+            )
 
         print_newlines(Styler.stylize(
             f"""\nDownload completed for \"{metadata.model_name}\"
