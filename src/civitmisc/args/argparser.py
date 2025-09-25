@@ -40,6 +40,14 @@ cache_parser.add_argument('-s', '--scan-model', metavar='DIRPATH', type=str,
                           help='Scans a directory recursively to add path to model files with matching filename to cache.')
 add_shared_option(cache_parser)
 
+image_parser = subparsers.add_parser(
+    'image', help='Image-related tasks. Download generation data for specific image IDs.')
+
+image_parser.add_argument('-g', '--gendata', metavar='IMAGE_ID', type=str, nargs='+',
+                         help='Download generation data for specific image ID(s). Example: civitmisc image -g 91969294 91969280')
+image_parser.add_argument('-o', '--output', metavar='DIR', type=str, default='.',
+                         help='Output directory for generation data files. Default is current directory.')
+add_shared_option(image_parser)
 
 def get_args():
     parser_result = parser.parse_args()
